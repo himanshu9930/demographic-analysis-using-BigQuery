@@ -4,12 +4,12 @@
 This project analyzes Census Block Group (CBG) demographic data to identify optimal locations for restaurant expansion, with a specific focus on Wisconsin. The analysis combines demographic data, housing information, education levels, and income distribution to identify underserved areas that meet specific business criteria.
 
 ## Data Source
-This project utilizes publicly available Census Block Group (CBG) demographic data from Google Cloud Platform's BigQuery public datasets. The data is accessed through the following tables:
-- `grp17-fa24-mgmt582-final.ice17.cbg_demographics`
-- `grp17-fa24-mgmt582-final.ice17.cbg_area_type`
-- `grp17-fa24-mgmt582-final.ice17.brands`
-- `grp17-fa24-mgmt582-final.ice17.visits`
-- `grp17-fa24-mgmt582-final.ice17.cbg_fips`
+This project utilizes publicly available Census Block Group (CBG) demographic data from Google Cloud Platform's BigQuery public datasets. The data can be accessed for free through GCP's database marketplace and includes:
+- Census Block Group demographics
+- Area type classifications
+- Brand and business information
+- Visit patterns
+- Geographic identifiers
 
 ## Key Findings
 
@@ -100,10 +100,4 @@ This project is open for contributions. Please follow these steps:
 2. Create a feature branch
 3. Commit your changes
 4. Push to the branch
-5. Create a Pull Request
-
-## License
-[Add appropriate license information]
-
-## Contact
-[Add contact information] 
+5. Create a Pull Request 
