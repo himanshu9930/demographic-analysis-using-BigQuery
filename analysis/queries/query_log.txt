@@ -1,0 +1,784 @@
+---------------------------- Establishing Rural, Suburban & Urban CBGs ----------------------------------
+
+/*
+Based on US Census Data, 
+  ~20% of US Population Resides in Rural Areas
+  ~55% of the US Population Resides in Suburban Areas
+  ~25% of the US Population Resides in Urban Areas
+
+We've tried to replicate the same distribution by grouping CBGs by total_population count,
+  Rural CBGs -> Total Population <= 2,000 & Total Houses < 1,800
+  Suburban CBGs -> 2,000 < Total Population <= 10,000 & Total Houses < 7200
+  Urban CBGs -> Total Population > 10,000
+
+This Approach Leaves us with the Following Numbers,
+  66,874,468 Rural Population in 90,801 CBGs
+  178,271,791 Suburban Population in 84,651 CBGs
+  84,678,691 Urban Population in 66,883 CBGs
+*/
+
+SELECT
+  (
+    CASE
+      WHEN
+          pop_total <= 1050
+          AND rent_total + rent_na + value_total <= 1800
+          THEN 'Rural Area'
+      WHEN
+          pop_total > 1500
+          AND pop_total <= 10000
+          AND rent_total + rent_na + value_total <= 7200
+          THEN 'Suburban Area'
+      ELSE 'Urban Area'
+    END
+  ) AS pop_group
+  , SUM(pop_total) AS pop_part
+  , COUNT(cbg)
+
+FROM
+  `grp17-fa24-mgmt582-final.ice17.cbg_demographics`
+GROUP BY
+  pop_group
+
+-- Saving this as a VIEW for easy access to querying and JOINs for the rest of the Analysis
+-- Name of view - cbg_area_type
+
+
+
+
+---------------------------- Checking Gender Ratio based on CBG Types ----------------------------------
+
+WITH
+    -- Get CBG Type for all CBGs along with Pop Numbers
+    target_cbgs AS (
+        SELECT
+            cbg_data.cbg
+            , cbg_data.pop_total
+            , cbg_data.pop_m_total
+            , cbg_data.pop_f_total
+            , cbg_type.pop_group AS pop_type
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_demographics` AS cbg_data
+        INNER JOIN
+            `grp17-fa24-mgmt582-final.ice17.cbg_area_type` AS cbg_type
+        ON 
+            cbg_data.cbg = cbg_type.cbg
+        WHERE
+            cbg_data.pop_total > 0
+    ),
+    -- Aggregate Pop Numbers to a Percentage Level to get Gender Ratio
+    agg_perc_data AS (
+        SELECT
+            ROUND((pop_m_total / pop_total * 100), 2) AS pop_m_perc
+            , ROUND((pop_f_total / pop_total * 100), 2) AS pop_f_perc
+            , cbg
+            , pop_type
+        FROM
+            target_cbgs
+    )
+
+-- Calculate Gender Ratio and Bucket it into Categories to identify skewness characteristics in Rural/Suburban and Urban Areas
+SELECT
+    (
+        CASE
+            WHEN
+                pop_m_perc < 25
+                THEN 'Male Pop < 25%'
+            WHEN
+                pop_m_perc >= 25
+                AND pop_m_perc < 40
+                THEN '25% <= Male Pop < 40%'
+            WHEN
+                pop_m_perc >= 40
+                AND pop_m_perc < 60
+                THEN '40% <= Male Pop < 60%'
+            WHEN
+                pop_m_perc >= 60
+                AND pop_m_perc < 75
+                THEN '60% <= Male Pop < 75%'
+            ELSE 'Male Pop >= 75%'
+        END
+    ) AS pop_ratio
+    , pop_type
+    , COUNT(cbg) AS num_cbg
+FROM
+    agg_perc_data
+GROUP BY
+    1, 2
+ORDER BY
+    pop_type
+
+
+
+
+---------------------------- Checking Total Housing based on CBG Types ----------------------------------
+
+WITH
+    -- Get CBG Type for all CBGs along with Housing Numbers
+    target_cbgs AS (
+        SELECT
+            cbg_data.cbg
+            , cbg_data.rent_total
+            , cbg_data.rent_na
+            , cbg_data.value_total
+            , cbg_data.rent_total + cbg_data.rent_na + cbg_data.value_total AS total_homes
+            , cbg_type.pop_group AS pop_type
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_demographics` AS cbg_data
+        INNER JOIN
+            `grp17-fa24-mgmt582-final.ice17.cbg_area_type` AS cbg_type
+        ON
+            cbg_data.cbg = cbg_type.cbg
+        WHERE
+            cbg_data.rent_total + cbg_data.rent_na + cbg_data.value_total > 0
+    ),
+    -- Aggregate Housing Numbers to a Percentage Level to get Gender Ratio
+    agg_perc_data AS (
+        SELECT
+            ROUND((value_total / total_homes * 100), 2) AS owned_perc
+            , ROUND((rent_total / total_homes * 100), 2) AS rent_known_perc
+            , cbg
+            , pop_type
+        FROM
+            target_cbgs
+    )
+
+-- Calculate Gender Ratio and Bucket it into Categories to identify skewness characteristics in Rural/Suburban and Urban Areas
+SELECT
+    (
+        CASE
+            WHEN
+                owned_perc < 25
+                THEN 'Owned Homes < 25%'
+            WHEN
+                owned_perc >= 25
+                AND owned_perc < 40
+                THEN '25% <= Owned Homes < 40%'
+            WHEN
+                owned_perc >= 40
+                AND owned_perc < 60
+                THEN '40% <= Owned Homes < 60%'
+            WHEN
+                owned_perc >= 60
+                AND owned_perc < 75
+                THEN '60% <= Owned Homes < 75%'
+            ELSE 'Owned Homes >= 75%'
+        END
+    ) AS owned_ratio
+    , (
+        CASE
+            WHEN
+                rent_known_perc < 25
+                THEN 'Rent Known Homes < 25%'
+            WHEN
+                rent_known_perc >= 25
+                AND rent_known_perc < 40
+                THEN '25% <= Rent Known Homes < 40%'
+            WHEN
+                rent_known_perc >= 40
+                AND rent_known_perc < 60
+                THEN '40% <= Rent Known Homes < 60%'
+            WHEN
+                rent_known_perc >= 60
+                AND rent_known_perc < 75
+                THEN '60% <= Rent Known Homes < 75%'
+            ELSE 'Rent Known Homes >= 75%'
+        END
+    ) AS rent_known_ratio
+    , pop_type
+    , COUNT(cbg) AS num_cbg
+FROM
+    agg_perc_data
+GROUP BY
+    1, 2, 3
+ORDER BY
+    pop_type
+    , owned_ratio
+    , rent_known_ratio
+
+
+----------------------------------------------------------------------------------------------------
+                                         Owned Homes Percentage
+----------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= Homes < 40% | 40% <= Homes < 60% | 60% <= Homes < 75% |  >= 75%
+----------------------------------------------------------------------------------------------------
+Rural CBGs     |  17,624  |       12,174       |       17,705       |     14,906         |  25,900
+Suburban CBGs  |  15,595  |       10,846       |       17,286       |     15,366         |  25,280
+Urban CBGs     |  12,923  |       8,972        |       13,536       |     11,863         |  19,498
+----------------------------------------------------------------------------------------------------
+                                         Rent Known Homes Percentage
+----------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= Homes < 40% | 40% <= Homes < 60% | 60% <= Homes < 75% |  >= 75%
+----------------------------------------------------------------------------------------------------
+Rural CBGs     |  47,414  |       25,455       |       15,349       |        61          |  31
+Suburban CBGs  |  48,267  |       23,071       |       13,015       |        14          |  6
+Urban CBGs     |  36,896  |       18,977       |       10,899       |        16          |  4
+----------------------------------------------------------------------------------------------------
+                                         Rent Unknown Homes Percentage
+----------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= Homes < 40% | 40% <= Homes < 60% | 60% <= Homes < 75% |  >= 75%
+----------------------------------------------------------------------------------------------------
+Rural CBGs     |  51,824  |       23,579       |       12,906       |        0           |  0
+Suburban CBGs  |  50,932  |       21,695       |       11,746       |        0           |  0
+Urban CBGs     |  39,587  |       17,605       |        9,600       |        0           |  0
+----------------------------------------------------------------------------------------------------
+
+
+
+
+
+---------------------------- Checking Total Education based on CBG Types ----------------------------------
+
+
+WITH
+    -- Get CBG Type for all CBGs along with Housing Numbers
+    target_cbgs AS (
+        SELECT
+            cbg_data.cbg
+            , cbg_data.edu_total
+            , cbg_data.edu_none
+            , cbg_data.pop_total - (cbg_data.edu_none + cbg_data.edu_total) AS edu_missing
+            , cbg_data.pop_total
+            , cbg_type.pop_group AS pop_type
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_demographics` AS cbg_data
+        INNER JOIN
+            `grp17-fa24-mgmt582-final.ice17.cbg_area_type` AS cbg_type
+        ON
+            cbg_data.cbg = cbg_type.cbg
+        WHERE
+            pop_total > 0
+    ),
+    -- Aggregate Housing Numbers to a Percentage Level to get Gender Ratio
+    agg_perc_data AS (
+        SELECT
+            ROUND((edu_total / pop_total * 100), 2) AS edu_perc
+            , ROUND((edu_none / pop_total * 100), 2) AS edu_none_perc
+            , ROUND((edu_missing / pop_total * 100), 2) AS edu_missing_perc
+            , cbg
+            , pop_type
+        FROM
+            target_cbgs
+    )
+
+-- Calculate Gender Ratio and Bucket it into Categories to identify skewness characteristics in Rural/Suburban and Urban Areas
+SELECT
+    (
+        CASE
+            WHEN
+                edu_perc < 25
+                THEN 'Educated Population < 25%'
+            WHEN
+                edu_perc >= 25
+                AND edu_perc < 40
+                THEN '25% <= Educated Population < 40%'
+            WHEN
+                edu_perc >= 40
+                AND edu_perc < 60
+                THEN '40% <= Educated Population < 60%'
+            WHEN
+                edu_perc >= 60
+                AND edu_perc < 75
+                THEN '60% <= Educated Population < 75%'
+            ELSE 'Educated Population >= 75%'
+        END
+    ) AS edu_ratio
+    , (
+        CASE
+            WHEN
+                edu_none_perc < 25
+                THEN 'Uneducated Population < 25%'
+            WHEN
+                edu_none_perc >= 25
+                AND edu_none_perc < 40
+                THEN '25% <= Uneducated Population < 40%'
+            WHEN
+                edu_none_perc >= 40
+                AND edu_none_perc < 60
+                THEN '40% <= Uneducated Population < 60%'
+            WHEN
+                edu_none_perc >= 60
+                AND edu_none_perc < 75
+                THEN '60% <= Uneducated Population < 75%'
+            ELSE 'Uneducated Population >= 75%'
+        END
+    ) AS unedu_ratio
+    , pop_type
+    , COUNT(cbg) AS num_cbg
+FROM
+    agg_perc_data
+GROUP BY
+    1, 2, 3
+ORDER BY
+    pop_type
+    , edu_ratio
+    , unedu_ratio
+
+
+
+------------------------------------------------------------------------------------------------------
+                                         Uneducated Population Percentage
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  88,511  |         42          |          8          |        0            |     1
+Suburban CBGs  |  84,637  |          9          |          5          |        0            |     0
+Urban CBGs     |  66,870  |         13          |          0          |        0            |     0
+------------------------------------------------------------------------------------------------------
+                                          Educated Population Percentage
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |   344    |         710         |       10,297        |      39,061         |  38,150
+Suburban CBGs  |   826    |         801         |       16,590        |      49,769         |  16,665
+Urban CBGs     |   277    |         541         |        9,840        |      35,657         |  20,568
+------------------------------------------------------------------------------------------------------
+                                     Education Unknown Population Percentage
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  41,062  |       37,326        |        9,173        |        661          |   340
+Suburban CBGs  |  19,710  |       49,271        |       14,119        |        734          |   817
+Urban CBGs     |  23,149  |       34,437        |        8,531        |        495          |   271
+------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+---------------------------- Checking Total Income based on CBG Types ----------------------------------
+
+
+WITH
+    -- Get CBG Type for all CBGs along with Housing Numbers
+    target_cbgs AS (
+        SELECT
+            cbg_data.cbg
+            , cbg_data.inc_total
+            , cbg_data.pop_total
+            , cbg_type.pop_group AS pop_type
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_demographics` AS cbg_data
+        INNER JOIN
+            `grp17-fa24-mgmt582-final.ice17.cbg_area_type` AS cbg_type
+        ON
+            cbg_data.cbg = cbg_type.cbg
+        WHERE
+            pop_total > 0
+    ),
+    -- Aggregate Housing Numbers to a Percentage Level to get Gender Ratio
+    agg_perc_data AS (
+        SELECT
+            ROUND((inc_total / pop_total * 100), 2) AS inc_perc
+            , cbg
+            , pop_type
+        FROM
+            target_cbgs
+    )
+
+-- Calculate Gender Ratio and Bucket it into Categories to identify skewness characteristics in Rural/Suburban and Urban Areas
+SELECT
+    (
+        CASE
+            WHEN
+                inc_perc < 25
+                THEN 'Earning Population < 25%'
+            WHEN
+                inc_perc >= 25
+                AND inc_perc < 40
+                THEN '25% <= Earning Population < 40%'
+            WHEN
+                inc_perc >= 40
+                AND inc_perc < 60
+                THEN '40% <= Earning Population < 60%'
+            WHEN
+                inc_perc >= 60
+                AND inc_perc < 75
+                THEN '60% <= Earning Population < 75%'
+            ELSE 'Earning Population >= 75%'
+        END
+    ) AS inc_ratio
+    , pop_type
+    , COUNT(cbg) AS num_cbg
+FROM
+    agg_perc_data
+GROUP BY
+    1, 2
+ORDER BY
+    pop_type
+    , inc_ratio
+
+
+
+
+------------------------------------------------------------------------------------------------------
+                                         Earning Population Percentage
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  2,008   |       34,622        |        46,306       |        4,771        |    855
+Suburban CBGs  |  6,922   |       55,521        |        21,564       |         621         |    23
+Urban CBGs     |  2,577   |       35,834        |        26,809       |        1,550        |    113
+------------------------------------------------------------------------------------------------------
+
+
+
+
+---------------------------- Checking Total Income based on CBG Types ----------------------------------
+
+WITH
+    -- Get CBG Type for all CBGs along with Housing Numbers
+    target_cbgs AS (
+        SELECT
+            cbg_data.cbg
+            , inc_lt10 + `inc_10-15` + `inc_15-20` + `inc_20-25` AS inc_25k
+            , `inc_25-30` + `inc_30-35` + `inc_35-40` AS inc_40k
+            , `inc_40-45` + `inc_45-50` + `inc_50-60` AS inc_60k
+            , `inc_60-75` + `inc_75-100` AS inc_100k
+            , `inc_100-125` + `inc_125-150` + `inc_150-200` AS inc_200k
+            , `inc_gte200` AS inc_200_gt
+            , pop_total
+            , cbg_type.pop_group AS pop_type
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_demographics` AS cbg_data
+        INNER JOIN
+            `grp17-fa24-mgmt582-final.ice17.cbg_area_type` AS cbg_type
+        ON
+            cbg_data.cbg = cbg_type.cbg
+        WHERE
+            pop_total > 0
+    ),
+    -- Aggregate Income Numbers to a Percentage Leve
+    agg_perc_data AS (
+        SELECT
+            ROUND((inc_25k / pop_total * 100), 2) AS inc_25k_perc
+            , ROUND((inc_40k / pop_total * 100), 2) AS inc_40k_perc
+            , ROUND((inc_60k / pop_total * 100), 2) AS inc_60k_perc
+            , ROUND((inc_100k / pop_total * 100), 2) AS inc_100k_perc
+            , ROUND((inc_200k / pop_total * 100), 2) AS inc_200k_perc
+            , ROUND((inc_200_gt / pop_total * 100), 2) AS inc_200gt_perc
+            , cbg
+            , pop_type
+        FROM
+            target_cbgs
+    )
+
+-- Calculate Income and Bucket it into Categories to identify skewness characteristics in Rural/Suburban and Urban Areas
+SELECT
+    (
+        CASE
+            WHEN
+                inc_25k_perc < 25
+                THEN '25K Population < 25%'
+            WHEN
+                inc_25k_perc >= 25
+                AND inc_25k_perc < 40
+                THEN '25% <= 25K Population < 40%'
+            WHEN
+                inc_25k_perc >= 40
+                AND inc_25k_perc < 60
+                THEN '40% <= 25K Population < 60%'
+            WHEN
+                inc_25k_perc >= 60
+                AND inc_25k_perc < 75
+                THEN '60% <= 25K Population < 75%'
+            ELSE '25K Population >= 75%'
+        END
+    ) AS inc_ratio
+    , pop_type
+    , COUNT(cbg) AS num_cbg
+FROM
+    agg_perc_data
+GROUP BY
+    1, 2
+ORDER BY
+    pop_type
+    , inc_ratio
+
+
+
+------------------------------------------------------------------------------------------------------
+                                        Population Percentage (Income < $25K)
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  82,166  |       5,216         |        1,011        |         111         |    58
+Suburban CBGs  |  83,779  |        824          |          46         |          2          |    0
+Urban CBGs     |  65,110  |       1,621         |         147         |          5          |    0
+------------------------------------------------------------------------------------------------------
+                                        Population Percentage (Income < $40K)
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  71,082  |        13,998       |       3,052         |         301         |    129
+Suburban CBGs  |  80,673  |         3,732       |         241         |          4          |     1
+Urban CBGs     |  60,280  |         5,934       |         644         |          25         |     0
+------------------------------------------------------------------------------------------------------
+                                        Population Percentage (Income < $60K)
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  52,304  |       27,457        |        7,805        |         773         |   223
+Suburban CBGs  |  71,764  |       11,905        |          963        |          18         |    1
+Urban CBGs     |  49,235  |       15,290        |        2,261        |          90         |    7
+------------------------------------------------------------------------------------------------------
+                                        Population Percentage (Income < $100K)
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  24,561  |       41,443        |       20,224        |        1,932        |   402
+Suburban CBGs  |  47,407  |       32,404        |        4,731        |          107        |     2
+Urban CBGs     |  26,890  |       31,362        |        8,258        |          346        |    27
+------------------------------------------------------------------------------------------------------
+                                        Population Percentage (Income < $200K)
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |   6,660  |       38,663        |       38,910        |        3,672        |   657
+Suburban CBGs  |  16,496  |       52,835        |       14,959        |          350        |    11
+Urban CBGs     |   7,974  |       37,190        |       20,711        |          939        |    69
+------------------------------------------------------------------------------------------------------
+                                        Population Percentage (Income > $200K)
+------------------------------------------------------------------------------------------------------
+               | < 25%    | 25% <= People < 40% | 40% <= People < 60% | 60% <= People < 75% |  >= 75%
+------------------------------------------------------------------------------------------------------
+Rural CBGs     |  88,141  |         387         |         29          |          2          |    3
+Suburban CBGs  |  84,536  |         115         |         0           |          0          |    0
+Urban CBGs     |  66,721  |         159         |         3           |          0          |    0
+------------------------------------------------------------------------------------------------------
+
+
+
+--------------------------------------------------------------------------------------------------------------------
+
+
+---------------- Query to Look for the Concentration of our Target Brands in Wisconsin CBGs ------------------------
+
+
+WITH
+  wi_cbgs AS (
+      SELECT
+          cbg
+          , pop_total
+      FROM
+          `grp17-fa24-mgmt582-final.ice17.cbg_demographics`
+      WHERE
+          -- Only Take CBGs from Wisconsin
+          -- Checked the State FIP from the table
+          cbg LIKE '55%'
+  ),
+  cbg_type AS (
+    -- Get info about CBG Type for all Wisconsin CBGs
+      SELECT
+          cbg
+          , pop_group
+      FROM
+          `grp17-fa24-mgmt582-final.ice17.cbg_area_type`
+      WHERE
+          cbg LIKE '55%'
+  ),
+  target_brands AS (
+    SELECT
+        safegraph_brand_id
+        , brand_name
+    FROM
+        `grp17-fa24-mgmt582-final.ice17.brands`
+    WHERE
+        brand_name LIKE "%Cracker Barrel%"
+        OR brand_name LIKE "%Bob Evans%"
+        OR brand_name LIKE "%Perkins Restaurant & Bakery%"
+        OR brand_name LIKE "%IHOP%"
+        OR brand_name LIKE "%International House of Pancakes%"
+        OR brand_name LIKE "%Denny's%"
+        OR brand_name LIKE "%Village Inn%"
+        OR brand_name LIKE "%Golden Corral%"
+        OR brand_name LIKE "%Shoney's%"
+        OR brand_name LIKE "%Culver's%"
+        OR brand_name LIKE "%Old Country Buffet%"
+        OR brand_name LIKE "%Bakers Square%"
+        OR brand_name LIKE "%Big Boy%"
+        OR brand_name LIKE "%Steak 'n Shake%"
+        OR brand_name LIKE "%Luby’s%"
+        OR brand_name LIKE "%Huddle House%" 
+  ),
+  cbg_restaurants AS (
+      SELECT
+          poi_cbg AS cbg
+          , safegraph_brand_ids AS brand_id
+          , COUNT(safegraph_place_id) AS restaurants
+      FROM
+          `grp17-fa24-mgmt582-final.ice17.visits`
+      WHERE
+          poi_cbg LIKE '55%'
+          AND safegraph_brand_ids IS NOT NULL
+      GROUP BY
+        poi_cbg
+        , safegraph_brand_ids
+  ),
+  restaurant_grouping AS (
+      SELECT
+          target_brands.brand_name
+          , cbg_restaurants.cbg
+          , cbg_restaurants.restaurants
+      FROM
+          cbg_restaurants
+      INNER JOIN
+          target_brands
+      ON
+          cbg_restaurants.brand_id = target_brands.safegraph_brand_id
+  )
+
+SELECT
+    wi_cbgs.cbg
+    , wi_cbgs.pop_total
+    , cbg_type.pop_group AS cbg_class
+    -- , restaurant_grouping.brand_name
+    , SUM(restaurant_grouping.restaurants) AS res_total
+    , wi_cbgs.pop_total/SUM(restaurant_grouping.restaurants) AS serve_ratio
+FROM
+    wi_cbgs
+INNER JOIN
+    cbg_type
+ON
+    wi_cbgs.cbg = cbg_type.cbg
+INNER JOIN
+    restaurant_grouping
+ON
+    wi_cbgs.cbg = restaurant_grouping.cbg
+GROUP BY
+  1, 2, 3
+
+
+-- Saved as a VIEW in `grp17-fa24-mgmt582-final.ice17.target_brand_density`
+
+
+
+
+
+---------------------------------------------------------------------------------------------------------
+
+------------- Based on previous view, Identifying Underserved CBGs in Wisconsin  --------------------------
+
+
+WITH
+    avg_ratio AS (
+      SELECT
+          SUM(serve_ratio)/COUNT(*) AS avg_bench
+      FROM
+          `grp17-fa24-mgmt582-final.ice17.target_brand_density`
+    ),
+    serve_agg AS (
+        SELECT
+            cbg
+            , cbg_class
+            , pop_total
+            , res_total
+            , serve_ratio
+            , ROUND(avg_bench, 2) AS avg_bench
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.target_brand_density` AS brand_density
+        LEFT JOIN
+            avg_ratio
+        ON
+            1 = 1
+    )
+
+SELECT
+    cbg
+    , cbg_class
+    , pop_total
+    , res_total
+    , serve_ratio
+    , avg_bench
+    , serve_ratio - avg_bench AS serve_scale
+FROM
+  serve_agg
+WHERE
+  -- More People Per Restaurant than the Avg indicates Under-Served Area
+  serve_ratio > avg_bench
+ORDER BY
+  7 DESC
+  , 2
+
+
+--- We now have 73 Underserved CBGs to Choose From
+
+
+
+
+-------------------------------------------------------------------------------------------------
+/*
+Based on our Base Location - Brookfield, Wisconsin
+We identify the following benchmarks that a second location should meet in order to qualify for new outlet,
+	- At Least 30% of the population should have a collegiate degree
+	- At Least 10% of the population should have an income over $100K
+	- This in combination with an Under-Served ratio of People:Restaurants will give us new locations
+*/
+
+
+WITH
+    target_cbgs AS (
+        SELECT
+            cbg
+            , cbg_class
+            , pop_total
+            , res_total
+            , serve_ratio
+            , avg_bench
+            , serve_scale
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.wi_target_cbgs`
+    ),
+    cbg_demo AS (
+        SELECT
+            cbg
+            , edu_coll_lt1 + edu_coll_gte1 + edu_coll_bach AS bach_pop
+            , `inc_100-125` + `inc_125-150` + `inc_150-200` + `inc_gte200` AS inc_100k_pop
+
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_demographics`
+    ),
+    cbg_county AS (
+        SELECT
+            county_fips
+            , county
+        FROM
+            `grp17-fa24-mgmt582-final.ice17.cbg_fips`
+        WHERE
+            state = 'WI'
+    )
+
+SELECT
+    target_cbgs.cbg
+    , target_cbgs.cbg_class
+    , target_cbgs.pop_total
+    , target_cbgs.serve_ratio
+    , target_cbgs.avg_bench
+    , target_cbgs.serve_scale AS deficit
+    , cbg_demo.bach_pop AS pop_with_bachlors
+    , cbg_demo.inc_100k_pop AS pop_with_100k_min_income
+    , cbg_county.county
+FROM
+    target_cbgs
+INNER JOIN
+    cbg_demo
+ON
+    target_cbgs.cbg = cbg_demo.cbg
+INNER JOIN
+    cbg_county
+ON
+    SUBSTRING(target_cbgs.cbg, 3, 3) = cbg_county.county_fips
+WHERE
+    cbg_demo.bach_pop / target_cbgs.pop_total >= 0.3
+    AND cbg_demo.inc_100k_pop / target_cbgs.pop_total >= 0.1
+ORDER BY
+  serve_scale DESC
+
+
+
+
+-- Returns a List of 24 CBGs across 16 Counties
+-- Saved in a View `grp17-fa24-mgmt582-final.ice17.result_set`
+
